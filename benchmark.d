@@ -62,10 +62,12 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
     enum BenchmarkKernel;
 
     alias pack = getSymbolsByUDA!(mod, BenchmarkKernel);
-    pragma(msg, pack);
+    
     alias theFunction = pack[0];
 
-    pragma(msg, "fail");
+    version(PrintBenchmarkNames) {
+        pragma(msg, "Benchmarking -> ", fullyQualifiedName!theFunction, " i.e. ", name);
+    }
     auto runBenchmark()
     {
         foreach (v; rngGenerateParameter)
