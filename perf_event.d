@@ -5,7 +5,7 @@
   *
   * Authors: Max Haughton
   */
-module core.sys.linux.perf_event;
+module perf_event;
 version (linux)  : extern (C):
 @nogc:
 nothrow:

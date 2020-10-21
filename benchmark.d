@@ -7,6 +7,12 @@
 
 */
 module benchmark;
+
+enum ResourceMeasurementType
+{
+    time,
+    perf_event
+}
 ///
 enum ContainsBenchmarks;
 
@@ -59,13 +65,21 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
     mixin("import ", m, "; alias mod = ", m, ";");
 
     //This is unique to this mixin so it can be used to find whatever the UDA is attached to.
-    enum BenchmarkKernel;
+    struct BenchmarkKernel
+    {
+        ResourceMeasurementType type;
+        this(typeof(type) set)
+        {
+            type = set;
+        }
+    }
 
     alias pack = getSymbolsByUDA!(mod, BenchmarkKernel);
-    
+
     alias theFunction = pack[0];
 
-    version(PrintBenchmarkNames) {
+    version (PrintBenchmarkNames)
+    {
         pragma(msg, "Benchmarking -> ", fullyQualifiedName!theFunction, " i.e. ", name);
     }
     auto runBenchmark()
@@ -74,20 +88,54 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
         {
             import std.datetime.stopwatch;
             import std.stdio;
+            import perf_event;
+            import core.stdc.stdlib;
+            import core.stdc.string : memset;
+            import core.sys.posix.sys.ioctl;
+            import core.stdc.stdio;
+            import core.sys.posix.unistd;
             auto x = new LinkedList();
             const tmp = parameterToData(v);
 
+            perf_event_attr pe;
+            long count;
+            int fd;
+
+            memset( & pe, 0, perf_event_attr.sizeof);
+            pe.type = perf_type_id.PERF_TYPE_HARDWARE;
+            pe.size = perf_event_attr.sizeof;
+            pe.config = perf_hw_id.PERF_COUNT_HW_CACHE_MISSES;
+            pe.disabled = 1;
+            pe.exclude_kernel = 1;
+            pe.exclude_hv = 1;
+
+            fd = cast(int) perf_event_open(&pe, 0, -1, -1, 0);
+            if (fd == -1)
+            {
+                assert(0);
+            }
+
             
+
+            scope(exit) close(fd);
 
             auto sw = StopWatch(AutoStart.no);
-            sw.start();
-            auto ret = theFunction(x, tmp);
-            sw.stop();
 
             
-            long nsecs = sw.peek.total!"nsecs";
-            writeln(v,",",nsecs);
+            ioctl(fd, PERF_EVENT_IOC_RESET, 0);
+            ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
+            sw.start();
+            auto ret = theFunction(x, tmp);
+            //printf("Measuring instruction count for this printf\n");
+            sw.stop();
+            ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+            read(fd, &count, long.sizeof);
             
+            
+
+            long nsecs = sw.peek.total!"nsecs";
+            writefln!"%u,%u,%u"(v, nsecs, count);
+
         }
     }
 

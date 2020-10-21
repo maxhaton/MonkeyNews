@@ -64,7 +64,7 @@ class LinkedList {
 //Generate random n random numbers
 alias rng = (n) => generate!(() => uniform(int.min, int.max)).takeExactly(n).array;
 
-@BenchmarkKernel!("Linked List insert benchmark", iota(1, 5000), rng) 
+@BenchmarkKernel!("Linked List insert benchmark", iota(1, 50000), rng)(ResourceMeasurementType.perf_event)
 auto benchOperation(LinkedList input, inout int[] data) pure
 {
     foreach(x; data)
@@ -77,6 +77,6 @@ int main()
     import std;
     auto myList = new LinkedList(0);
     iota(1, 100).each!(x => myList.insertFront(x));
-    myList.length.writeln;
+    //myList.length.writeln;
     return 0;
 }
