@@ -5,13 +5,40 @@
 
     This library attempts to do that, in a nice format that you can use without cluttering your codebase.
 
+    Currently doesn't work with -betterC (yet)
 */
 module benchmark;
+public import resources;
+import resources.resroot;
 
-enum ResourceMeasurementType
+///The resource to measure, strings here are what is looked for in a config file
+public enum ResourceMeasurementType : string
 {
-    time,
-    perf_event
+    ///
+    time = "time",
+    ///
+    perf_event = "perf_event_open"
+}
+
+/*
+    Declare when your benchmark will actually be run. 
+*/
+enum BenchmarkExecutionPolicy
+{
+    ///Run at the start of module loading
+    Start,
+    ///Run when module leaves scope
+    End,
+    //Look for a config file and run only when that file is found.
+    Defer
+}
+
+enum Visibility
+{
+    ///Do not publish
+    Hidden,
+
+    Config
 }
 ///
 enum ContainsBenchmarks;
@@ -38,6 +65,8 @@ template ResourceCurve(alias BigOPerformanceTemplate, alias AmortizedPerformance
    Use this UDA to declare a benchmark kernel - this will automatically be scheduled and run 
    by the library, over the range of values specified. 
 
+   If you want to pass multiple parameters, pack them in a tuple.
+
    This is intended for measuring (and/or verifying) the performance of an algorithm or data structure
    over some range of values of *any* statistic. You have to generate the statistic yourself unfortunately,
    but it can work out what you want to measure for you.
@@ -59,82 +88,87 @@ template ResourceCurve(alias BigOPerformanceTemplate, alias AmortizedPerformance
 template BenchmarkKernel(string name, alias rngGenerateParameter,
         alias parameterToData, int l = __LINE__, string m = __MODULE__)
 {
-    import std.traits;
+    import std.traits : getSymbolsByUDA, getUDAs;
 
     //mod is the module we are in
     mixin("import ", m, "; alias mod = ", m, ";");
 
-    //This is unique to this mixin so it can be used to find whatever the UDA is attached to.
+    ///This is unique to this mixin so it can be used to find whatever the UDA is attached to.
+    ///
     struct BenchmarkKernel
     {
-        ResourceMeasurementType type;
-        this(typeof(type) set)
+        ResourceMeasurement[] measureBuffer;
+        ///
+        BenchmarkExecutionPolicy type;
+        ///
+        this(typeof(type) set, ResourceMeasurement[] measures...)
         {
             type = set;
+            measureBuffer = measures;
+        }
+        ~this()
+        {
+            if(__ctfe) {
+                //Ensure deterministic destruction, structs are too complicated here but the GC cannot be relied upon
+                foreach(meas; measureBuffer)
+                    destroy(meas);
+            }
         }
     }
 
     alias pack = getSymbolsByUDA!(mod, BenchmarkKernel);
+    static assert(pack.length == 1);
 
     alias theFunction = pack[0];
-
+    auto configStructProto = getUDAs!(theFunction, BenchmarkKernel)[0];
+    //pragma(msg, configStructProto);
     version (PrintBenchmarkNames)
     {
         pragma(msg, "Benchmarking -> ", fullyQualifiedName!theFunction, " i.e. ", name);
     }
     auto runBenchmark()
     {
+        auto configStruct = configStructProto;
+        //Print a nice header
+        {
+            import std.algorithm, std.range, std.stdio : writeln;
+
+            chain(["N"], configStruct.measureBuffer.map!(x => x.outputName)).joiner(";").writeln;
+        }
         foreach (v; rngGenerateParameter)
         {
             import std.datetime.stopwatch;
-            import std.stdio;
-            import perf_event;
-            import core.stdc.stdlib;
-            import core.stdc.string : memset;
-            import core.sys.posix.sys.ioctl;
-            import core.stdc.stdio;
-            import core.sys.posix.unistd;
-            auto x = new LinkedList();
-            const tmp = parameterToData(v);
-
-            perf_event_attr pe;
-            long count;
-            int fd;
-
-            memset( & pe, 0, perf_event_attr.sizeof);
-            pe.type = perf_type_id.PERF_TYPE_HARDWARE;
-            pe.size = perf_event_attr.sizeof;
-            pe.config = perf_hw_id.PERF_COUNT_HW_CACHE_MISSES;
-            pe.disabled = 1;
-            pe.exclude_kernel = 1;
-            pe.exclude_hv = 1;
-
-            fd = cast(int) perf_event_open(&pe, 0, -1, -1, 0);
-            if (fd == -1)
-            {
-                assert(0);
-            }
-
+            import std.stdio, std.algorithm, std.range, std.conv : to;
+            import std.traits;
             
+            import core.stdc.stdlib : alloca;
+            //Get return type of parameter generation
+            const theDataToBenchmarkOver = parameterToData(v);
+            alias benchInputType = typeof(theDataToBenchmarkOver);
 
-            scope(exit) close(fd);
+            //Get function parameters
+            alias params = Parameters!theFunction;
+            pragma(msg, params);
+
+            auto x = new LinkedList();
 
             auto sw = StopWatch(AutoStart.no);
 
-            
-            ioctl(fd, PERF_EVENT_IOC_RESET, 0);
-            ioctl(fd, PERF_EVENT_IOC_ENABLE, 0);
-            sw.start();
-            auto ret = theFunction(x, tmp);
-            //printf("Measuring instruction count for this printf\n");
-            sw.stop();
-            ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
-            read(fd, &count, long.sizeof);
-            
-            
+            foreach (measure; configStruct.measureBuffer)
+                measure.start();
 
-            long nsecs = sw.peek.total!"nsecs";
-            writefln!"%u,%u,%u"(v, nsecs, count);
+            auto ret = theFunction(x, theDataToBenchmarkOver);
+
+            foreach (measure; configStruct.measureBuffer)
+                measure.stop();
+
+
+            //Data is currently not saved, to avoid the GC.
+            const bufLen = configStruct.measureBuffer.length;
+            long[] dataBuf = (cast(long*) alloca(bufLen * long.sizeof))[0..bufLen];
+            dataBuf[] = configStruct.measureBuffer.map!(x => x.get).array()[];
+            //Print results to an output range
+            chain([v], dataBuf).map!(x => x.to!string).joiner(";").writeln;
 
         }
     }

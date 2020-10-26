@@ -63,8 +63,9 @@ class LinkedList {
 }
 //Generate random n random numbers
 alias rng = (n) => generate!(() => uniform(int.min, int.max)).takeExactly(n).array;
-
-@BenchmarkKernel!("Linked List insert benchmark", iota(1, 50000), rng)(ResourceMeasurementType.perf_event)
+import resources.timer;
+//import resources.perfMeasure;
+@BenchmarkKernel!("Linked List insert benchmark", iota(1, 50), rng)(BenchmarkExecutionPolicy.Start, new PhobosTimer, new PhobosTimer)
 auto benchOperation(LinkedList input, inout int[] data) pure
 {
     foreach(x; data)
