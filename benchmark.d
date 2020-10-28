@@ -10,7 +10,7 @@
 module benchmark;
 public import resources;
 import resources.resroot;
-
+import std.stdio;
 ///The resource to measure, strings here are what is looked for in a config file
 public enum ResourceMeasurementType : string
 {
@@ -128,15 +128,19 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
     }
     auto runBenchmark()
     {
+        
         auto configStruct = configStructProto;
         //Print a nice header
         {
             import std.algorithm, std.range, std.stdio : writeln;
-
-            chain(["N"], configStruct.measureBuffer.map!(x => x.outputName)).joiner(";").writeln;
+            auto rangeHeader = chain(["N"], configStruct.measureBuffer.map!(x => x.outputHeader()).joiner());
+            
+            //rangeHeader.writeln;
+            rangeHeader.joiner(";").writeln;
         }
         foreach (v; rngGenerateParameter)
         {
+            
             import std.datetime.stopwatch;
             import std.stdio, std.algorithm, std.range, std.conv : to;
             import std.traits;
@@ -148,11 +152,10 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
 
             //Get function parameters
             alias params = Parameters!theFunction;
-            pragma(msg, params);
+            //pragma(msg, params);
 
             auto x = new LinkedList();
 
-            auto sw = StopWatch(AutoStart.no);
 
             foreach (measure; configStruct.measureBuffer)
                 measure.start();
@@ -164,10 +167,27 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
 
 
             //Data is currently not saved, to avoid the GC.
-            const bufLen = configStruct.measureBuffer.length;
-            long[] dataBuf = (cast(long*) alloca(bufLen * long.sizeof))[0..bufLen];
-            dataBuf[] = configStruct.measureBuffer.map!(x => x.get).array()[];
+            const bufLen = configStruct.measureBuffer.map!(x => x.outputCount).sum();
+
+            //Allocate the buffer on the stack because it should be fairly short
+            ulong[] dataBuf = (cast(ulong*) alloca(bufLen * ulong.sizeof))[0..bufLen];
+            
+            //auto rawResults = configStruct.measureBuffer.map!(x => x.get());
+            
+            //auto joinedResults = rawResults.joiner();
+
+            //writeln("RES: ", results, " ", dataBuf.length);
+            ulong idx = 0;
+            foreach(vg; configStruct.measureBuffer) {
+                auto data = vg.get();
+                foreach(val; data) {
+                    dataBuf[idx] = val;
+                    ++idx;
+                }
+            }
+            
             //Print results to an output range
+            
             chain([v], dataBuf).map!(x => x.to!string).joiner(";").writeln;
 
         }
@@ -178,7 +198,13 @@ template BenchmarkKernel(string name, alias rngGenerateParameter,
         import std.stdio;
 
         writeln("Running: ", name);
-        runBenchmark();
+        try {
+            runBenchmark();
+        } catch(Error e) {
+            e.msg.writeln;
+            e.info.writeln;
+        }
+        
 
     }
 }

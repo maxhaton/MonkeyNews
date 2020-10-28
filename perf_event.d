@@ -35,9 +35,10 @@ else
         static assert(0, "Architecture not supported");
 }
 extern (C) extern long syscall(long __sysno, ...);
-static long perf_event_open(perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, ulong flags)
+static int perf_event_open(perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, ulong flags)
 {
-        return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+        //possibly dragons here, but should only return fds
+        return cast(int) syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
 }
 /*
  * User-space ABI bits:

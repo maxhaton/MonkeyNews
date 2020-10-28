@@ -5,14 +5,16 @@ import core.stdc.stdint;
 import core.stdc.stdlib;
 import core.sys.posix.sys.ioctl;
 import core.sys.posix.unistd;
+version(Linux):
+extern (C) struct sub_rd
+{
+    uint64_t value;
+    uint64_t id;
+}
+pragma(msg, sub_rd.sizeof);
 extern (C) struct read_format
 {
     uint64_t nr;
-    struct sub_rd
-    {
-        uint64_t value;
-        uint64_t id;
-    }
 
     sub_rd* values;
 }
@@ -20,6 +22,7 @@ extern (C) struct read_format
 class PerfEvent : ResourceMeasurement
 {
     import core.time;
+    import std.range.interfaces;
 
     static string fullName = "PerfEvent";
     ///Constructor argument is stringly typed to load from config file
@@ -40,6 +43,29 @@ class PerfEvent : ResourceMeasurement
     {
         perf_type_id id;
         int eventType;
+        string prettyString() const
+        {
+            import std.conv : to;
+            import std.format;
+
+            string eventString;
+            switch (id)
+            {
+            case perf_type_id.PERF_TYPE_HARDWARE:
+                perf_hw_id theID = cast(perf_hw_id) eventType;
+                eventString = to!string(theID);
+                break;
+            case perf_type_id.PERF_TYPE_SOFTWARE:
+                perf_sw_ids theID = cast(perf_sw_ids) eventType;
+                eventString = to!string(theID);
+                break;
+            default:
+                assert(0, "HW and SW only");
+            }
+
+            return format!"PerfEvent{%s|%s}"(id.to!string, eventString);
+        }
+
     }
     //Memoize file descriptors etc.
     bool config = false;
@@ -47,9 +73,12 @@ class PerfEvent : ResourceMeasurement
     uint64_t[] perf_ids;
 
     event_tup[] events;
-    public override string outputName() pure const
+
+    public override InputRange!string outputHeader() pure const
     {
-        return "PerfEvent";
+        import std.algorithm : map;
+
+        return inputRangeObject(events.map!(x => x.prettyString));
     }
 
     public override final void start()
@@ -59,7 +88,8 @@ class PerfEvent : ResourceMeasurement
         {
             foreach (idx, val; events)
             {
-                perf_event_attr that;
+                perf_event_attr pea;
+                import core.stdc.string : memset;
 
                 memset(&pea, 0, perf_event_attr.sizeof);
 
@@ -69,7 +99,8 @@ class PerfEvent : ResourceMeasurement
                 pea.disabled = 1;
                 pea.exclude_kernel = 1;
                 pea.exclude_hv = 1;
-                pea.read_format = PERF_FORMAT_GROUP | PERF_FORMAT_ID;
+                pea.read_format = perf_event_read_format.PERF_FORMAT_GROUP
+                    | perf_event_read_format.PERF_FORMAT_ID;
 
                 auto groupFD = idx > 0 ? fileDescriptors[0] : -1;
 
@@ -82,26 +113,45 @@ class PerfEvent : ResourceMeasurement
         }
 
         //Actually start counting
-
-        ioctl(fd, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP);
-        ioctl(fd, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP);
+        const fd = fileDescriptors[0];
+        ioctl(fd, PERF_EVENT_IOC_RESET, perf_event_ioc_flags.PERF_IOC_FLAG_GROUP);
+        ioctl(fd, PERF_EVENT_IOC_ENABLE, perf_event_ioc_flags.PERF_IOC_FLAG_GROUP);
 
     }
 
     public override final void stop()
     {
         const fd = fileDescriptors[0];
-        ioctl(fd1, PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP);
+        ioctl(fd, PERF_EVENT_IOC_DISABLE, perf_event_ioc_flags.PERF_IOC_FLAG_GROUP);
     }
 
-    public override final long get() const pure
+    public override final InputRange!ulong get() const
     {
+        //There's no time constraint here so we can take as long as we want
+
+        import std.stdio;
+
         const fd = fileDescriptors[0];
         //Arbitrary buffer size for now
-        void[4096] buf;
-        read_format* rdPtr = cast(*read_format) &buf[0];
-        read(fd, buf, buf.sizeof);
-        return rdPtr.values[0].value;
+        byte[1024] buf;
+        buf[] = 0;
+        read_format* rdPtr = cast(read_format*)&buf[0];
+
+        read(fd, &buf[0], buf.sizeof);
+
+        const numb = rdPtr.nr;
+        //nothings fallen through the cracks
+        assert(numb == events.length);
+        
+        //writeln(cast(uint64_t[]) buf[0..uint64_t.sizeof*3]);
+        sub_rd[] data = cast(sub_rd[]) buf[uint64_t.sizeof..(uint64_t.sizeof + sub_rd.sizeof * numb)];
+        
+        
+        return inputRangeObject([data[0].value, data[1].value]);
+    }
+
+    public override final int outputCount() const
+    {
+        return cast(int) events.length;
     }
 }
-
