@@ -1,0 +1,18 @@
+# MonkeyNews
+This is a small library to help you write good benchmarks, via the magic of D's user defined attributes. 
+
+The eventual aim to be able to annotate your data structures and functions with a specific guarantee of a certain asymptotic and amortized (this is important) performance 
+guarantees. This is not solely in the running time, but also memory (and anything else you can measure).
+
+The primary intention of the library when benchmarking is to give you the data to process rather than analyse it for you.
+By default, for a given number of iterations it will calculate a mean value for you. The mean (say) running time
+may not be a particularly useful measure (plot a histogram) 
+
+The library provides mechanisms for measuring more subtle things, for example software OS events and hardware performance counters. 
+
+To avoid messing things up elsewhere, the library doesn't touch your machine (SMT and any frequency scaling will effect results) but does allow you to choose some software settings 
+to make your benchmarks more (or less consistent). The structure `GenericSettings` is where to set these. 
+
+
+It's not particularly lightweight at the moment - but in future should be able to fairly 
+seamlessly work in -betterC (Constuctors and destructors can be done with or without druntime)

@@ -67,7 +67,7 @@ import resources.timer;
 import resources.perfMeasure;
 
 
-@BenchmarkKernel!("Linked List insert benchmark", iota(1, 100_000), rng)(BenchmarkExecutionPolicy.Start, new PhobosTimer, new PerfEvent)
+@BenchmarkKernel!("Linked List insert benchmark", iota(1, 100), rng, (const _) => new LinkedList(), BenchmarkExecutionPolicy.Start)(Visibility.Config, GenericSettings(300), new PhobosTimer)
 auto benchOperation(LinkedList input, inout int[] data) pure
 {
     foreach(x; data)
