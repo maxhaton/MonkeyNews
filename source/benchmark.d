@@ -9,6 +9,7 @@
 */
 module benchmark;
 public import resources;
+import configjson;
 import resources.resroot;
 import std.algorithm, std.traits, std.range, std.stdio : writeln;
 
@@ -33,31 +34,7 @@ enum Visibility
     Config
 }
 
-///Generic settings seperated from the benchmark specific configuration struct for reuse.
-struct GenericSettings
-{
-    //This does not use bitflags currently because it's not important and going to be CTFE'd
 
-    ///How many iterations
-    uint iterations = 3;
-    ///Dump each measurement individually rather than taking the mean
-    bool putEachMeasurement = false;
-    /++
-        Attempt to flush the cachce of newly minted memory between independant variable measurements
-        i.e. if you take a large number of measurement you can see how hot or cold caches effect it.
-    +/
-    bool flushCache = false;
-    ///Allow the garbage collector to run as normal
-    bool enableGC = true;
-    ///Force a collection on each independant measurement
-    bool collectOnIndependant = true;
-    ///Force a collection on each iteration
-    bool collectOnIteration = true;
-    this(uint iters)
-    {
-        iterations = iters;
-    }
-}
 
 ///Is it a valid generator of an independant variable to benchmark against, i.e. an input range of element type convertible with size_t
 template validGeneratorRange(alias input)

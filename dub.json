@@ -1,0 +1,14 @@
+{
+	"authors": [
+		"mhh__"
+	],
+	"copyright": "Copyright © 2020, mhh__",
+	"dependencies": {
+		"mir": "~>3.2.1",
+		"mir-algorithm": "~>3.9.47"
+	},
+	"description": "Benchmarking and tracing",
+	"license": "BSL-1",
+	"name": "monkeynews",
+	"targetType": "library"
+}

@@ -1,5 +1,6 @@
 module proc;
 import std;
+version(Linux):
 import core.sys.linux.unistd;
 
 extern(C) void *sbrk(intptr_t increment);
