@@ -77,7 +77,7 @@ struct GenericSettings
 template ResourceCurve(alias BigOPerformanceTemplate, alias AmortizedPerformanceTemplate)
 {
     //Will eventually rely upon uprobes, most likely.
-    
+
 }
 ///Is it a valid generator of an independant variable to benchmark against, i.e. an input range of element type convertible with size_t
 template validGeneratorRange(alias input)
@@ -97,7 +97,31 @@ template validGeneratorRange(alias input)
             && isImplicitlyConvertible!(ElementType!ty, size_t);
     }
 }
+///This is unique to this mixin so it can be used to find whatever the UDA is attached to.
+///
+struct BenchmarkKernelImpl(int l, string f, string m)
+{
+    ResourceMeasurement[] measureBuffer;
+    GenericSettings settings;
+    Visibility type;
+    ///
+    this(typeof(type) setvis, typeof(settings) setsets, ResourceMeasurement[] measures...)
+    {
+        type = setvis;
+        measureBuffer = measures;
+        settings = setsets;
+    }
 
+    @trusted ~this()
+    {
+        if (__ctfe)
+        {
+            //Ensure deterministic destruction, structs are too complicated here but the GC cannot be relied upon
+            foreach (meas; measureBuffer)
+                destroy(meas);
+        }
+    }
+}
 /++
    Use this UDA to declare a benchmark kernel - this will automatically be scheduled and run 
    by the library, over the range of values specified. 
@@ -131,7 +155,7 @@ template validGeneratorRange(alias input)
  +/
 template BenchmarkKernel(string name, alias rngGenerateParameter, alias parameterToData, alias initializer,
         BenchmarkExecutionPolicy runWhen = BenchmarkExecutionPolicy.Defer,
-        int l = __LINE__, string m = __MODULE__) //More detailed type checking is done within.
+        int l = __LINE__, string f = __FILE__, string m = __MODULE__) //More detailed type checking is done within.
 if (validGeneratorRange!rngGenerateParameter)
 {
     import std.traits : getSymbolsByUDA, getUDAs;
@@ -139,38 +163,12 @@ if (validGeneratorRange!rngGenerateParameter)
     //mod is the module we are in
     mixin("import ", m, "; alias mod = ", m, ";");
 
-    ///This is unique to this mixin so it can be used to find whatever the UDA is attached to.
-    ///
-    struct BenchmarkKernel
-    {
-        ResourceMeasurement[] measureBuffer;
-        GenericSettings settings;
-        Visibility type;
-        ///
-        this(typeof(type) setvis, typeof(settings) setsets, ResourceMeasurement[] measures...)
-        {
-            type = setvis;
-            measureBuffer = measures;
-            settings = setsets;
-        }
-
-        @trusted ~this()
-        {
-            if (__ctfe)
-            {
-                //Ensure deterministic destruction, structs are too complicated here but the GC cannot be relied upon
-                foreach (meas; measureBuffer)
-                    destroy(meas);
-            }
-        }
-    }
-
+    alias BenchmarkKernel = BenchmarkKernelImpl!(l, f, m);
+    
     alias pack = getSymbolsByUDA!(mod, BenchmarkKernel);
-    //Static assert failures don't work 
-    static if (pack.length == 0)
-        pragma(msg, "Benchmark setup at ", m, ":", l,
-                " failed. Library could not find your function. \nDMD suppresses failures in templates like these.");
-
+    
+    tmpAssert!(pack.length, "Library could not find any functions attached to UDA") x;
+    
     alias theFunction = pack[0];
     auto configStructProto = getUDAs!(theFunction, BenchmarkKernel)[0];
 
@@ -178,8 +176,10 @@ if (validGeneratorRange!rngGenerateParameter)
     {
         import core.memory : GC;
 
-        @trusted void gcEnableShim() {GC.enable();}
-        
+        @trusted static void gcEnableShim()
+        {
+            GC.enable();
+        }
 
         //Turn the GC back on in case a benchmark turned it off downstairs
         scope (exit)
@@ -196,7 +196,6 @@ if (validGeneratorRange!rngGenerateParameter)
         //Pointer from results of independant variable to next
         BenchType* indToInd = null;
 
-
         //Lambdas are tempaltes by default
         static if (__traits(isTemplate, initializer))
             alias inst = initializer!(BenchType*);
@@ -204,8 +203,6 @@ if (validGeneratorRange!rngGenerateParameter)
             alias inst = initializer;
         //Make sure the initializer works properly
         static assert(__traits(compiles, inst(indToInd)));
-        
-        
 
         static assert(is(Parameters!inst[0] : const BenchType*));
         //Print a nice header
@@ -253,8 +250,7 @@ if (validGeneratorRange!rngGenerateParameter)
                     if (theSettings.collectOnIteration)
                         GC.collect();
 
-                //GC disabled, but present
-
+                
                 auto benchmarkOverThis = initializer(indToInd);
 
                 foreach (measure; configStruct.measureBuffer)
@@ -264,17 +260,8 @@ if (validGeneratorRange!rngGenerateParameter)
                 //--hot part end
                 foreach (measure; configStruct.measureBuffer)
                     measure.stop();
-
-                uint idx = 0;
-                foreach (vg; configStruct.measureBuffer)
-                {
-                    auto data = vg.get();
-                    foreach (val; data)
-                    {
-                        dataBuf[idx] += val;
-                        ++idx;
-                    }
-                }
+                //Get the data and store it
+                dataBuf[] += configStruct.measureBuffer.map!(that => that.get()).joiner.array()[];
 
                 if (theSettings.putEachMeasurement)
                 {
@@ -300,39 +287,27 @@ if (validGeneratorRange!rngGenerateParameter)
 
     mixin runAtModuleScope!(runBenchmark, runWhen);
 }
-
+//Run in a static constructor or destructor, exceptions are not caught.
 template runAtModuleScope(alias what, BenchmarkExecutionPolicy runWhen)
 {
     static if (runWhen == BenchmarkExecutionPolicy.Start)
     {
         shared static this()
         {
-            try
-            {
-                what();
-            }
-            catch (Error e)
-            {
-                e.msg.writeln;
-                e.info.writeln;
-            }
+            what();
         }
     }
     static if (runWhen == BenchmarkExecutionPolicy.End)
     {
         shared static ~this()
         {
-            try
-            {
-                what();
-            }
-            catch (Error e)
-            {
-                e.msg.writeln;
-                e.info.writeln;
-            }
+            what();
         }
     }
 }
 
-
+template tmpAssert(bool x, string msg)
+{
+    static assert(x, msg);
+    alias tmpAssert = int;
+}

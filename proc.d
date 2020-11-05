@@ -57,11 +57,12 @@ const struct ProcMapsEntry {
         return end - start;
     }
 }
-auto get()
+///
+auto getFromPID(pid_t pid = getpid())
 {
-    auto f = File("/proc/self/maps", "r");
+    auto f = File(format!"/proc/%d/maps"(pid), "r");
     //f.byLine.map!(str => ProcMapsEntry(str)).find!(tmp => tmp.rest == "[heap]").take(1).front.size;
-    f.byLine.map!(str => ProcMapsEntry(str)).map!(x => x.size / 4096).each!writeln;
+    return f.byLine.map!(str => ProcMapsEntry(str));
 }
 
 

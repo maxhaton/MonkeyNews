@@ -65,15 +65,18 @@ class LinkedList {
 alias rng = (n) => generate!(() => uniform(int.min, int.max)).takeExactly(n).array;
 import resources.timer;
 import resources.perfMeasure;
+import std.container.array;
 
-
-@BenchmarkKernel!("Linked List insert benchmark", iota(1, 100), rng, (const _) => new LinkedList(), BenchmarkExecutionPolicy.Start)(Visibility.Config, GenericSettings(300), new PhobosTimer)
+@BenchmarkKernel!("Linked List insert benchmark", iota(1, 100), rng, (const _) => new LinkedList(), BenchmarkExecutionPolicy.Start)(Visibility.Config, GenericSettings(1), new PhobosTimer)
+@BenchmarkKernel!("Linked List insert benchmark sd", iota(1, 100), rng, (const _) => new LinkedList(), BenchmarkExecutionPolicy.Start)(Visibility.Config, GenericSettings(1), new PhobosTimer)
 auto benchOperation(LinkedList input, inout int[] data) pure
 {
     foreach(x; data)
         input.insertFront(x);
     return input;
 }
+
+
 
 int main()
 {
